@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parcial 1 de Fundamentos Técnicos em Enfermagem</title>
+    <!-- Inclui a biblioteca Tailwind CSS para estilização rápida e responsiva -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilo para a fonte "Inter" */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+    <!-- Importa as bibliotecas do Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // As variáveis globais __app_id, __firebase_config, __initial_auth_token
+        // são fornecidas pelo ambiente.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const userIdDisplay = document.getElementById('userIdDisplay');
+            const submitBtn = document.getElementById('submitBtn');
+            
+            if (Object.keys(firebaseConfig).length > 0) {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Firebase Auth Error:", error);
+                    userIdDisplay.textContent = "Erro de conexão. A funcionalidade de salvar não está disponível.";
+                    submitBtn.disabled = true;
+                    return; // Retorna para evitar que o listener seja configurado com db/auth inválidos
+                }
+            } else {
+                console.error("Firebase configuration not found. Firestore features will not be available.");
+                userIdDisplay.textContent = "Erro de conexão. A funcionalidade de salvar não está disponível.";
+                submitBtn.disabled = true;
+                return;
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUserId = user.uid;
+                    userIdDisplay.textContent = `ID do Usuário: ${currentUserId}`;
+                    submitBtn.disabled = false;
+                    // Inicia o listener de scores após a autenticação
+                    setupScoreListener();
+                } else {
+                    console.log("Usuário não autenticado.");
+                    currentUserId = null;
+                    userIdDisplay.textContent = `ID do Usuário: Não autenticado.`;
+                    submitBtn.disabled = true;
+                }
+            });
+        });
+
+        // Configura a coleta de dados de pontuação em tempo real
+        function setupScoreListener() {
+            if (!db || !currentUserId) return;
+            const scoresCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/student_scores`);
+            const q = query(scoresCollectionRef);
+
+            onSnapshot(q, (snapshot) => {
+                const scoresList = document.getElementById('scoresList');
+                scoresList.innerHTML = '';
+                if (snapshot.empty) {
+                    scoresList.innerHTML = `<p class="text-gray-500 text-center">Nenhuma pontuação salva ainda.</p>`;
+                    return;
+                }
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const scoreItem = document.createElement('li');
+                    scoreItem.classList.add('p-3', 'bg-gray-50', 'rounded-lg', 'border', 'border-gray-200');
+                    scoreItem.innerHTML = `
+                        <p class="font-semibold text-gray-800">${data.name} (${data.university}, ${data.course})</p>
+                        <p class="text-sm text-gray-600">Pontuação: <span class="text-blue-600 font-bold">${data.score}</span> de 1000 - ${new Date(data.date.seconds * 1000).toLocaleString('pt-BR')}</p>
+                    `;
+                    scoresList.appendChild(scoreItem);
+                });
+            });
+        }
+    </script>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4 sm:p-8">
+    <div class="max-w-4xl w-full bg-white rounded-xl shadow-lg p-6 sm:p-10 border border-gray-200">
+        <!-- Título do Formulário -->
+        <h1 class="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-2">Parcial 1 de Fundamentos Técnicos em Enfermagem</h1>
+        <!-- Descrição do Formulário -->
+        <p class="text-center text-gray-600 mb-8 text-sm sm:text-base">Responda às questões abaixo. A sua pontuação será salva automaticamente.</p>
+        
+        <!-- ID do Usuário para rastreamento no banco de dados -->
+        <div class="mb-6 text-center text-sm text-gray-500">
+            <span id="userIdDisplay">Conectando...</span>
+        </div>
+
+        <!-- Formulário de Avaliação -->
+        <form id="quizForm" class="space-y-6">
+            <!-- Campos de Identificação do Aluno -->
+            <div class="bg-blue-50 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-6" role="alert">
+                <p class="font-semibold mb-2">Identificação do Aluno</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label for="studentName" class="block text-sm font-medium text-gray-700">Nome do Aluno</label>
+                        <input type="text" id="studentName" name="studentName" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="studentCourse" class="block text-sm font-medium text-gray-700">Curso</label>
+                        <input type="text" id="studentCourse" name="studentCourse" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="studentUniversity" class="block text-sm font-medium text-gray-700">Universidade</label>
+                        <input type="text" id="studentUniversity" name="studentUniversity" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    </div>
+                </div>
+            </div>
+
+            <!-- As questões serão inseridas aqui via JavaScript -->
+        </form>
+
+        <!-- Botão de Ação -->
+        <div class="flex flex-col sm:flex-row justify-center items-center mt-8 space-y-4 sm:space-y-0 sm:space-x-4">
+            <button id="submitBtn" type="button" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-full shadow-md transition-colors duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50" disabled>
+                Enviar Avaliação
+            </button>
+        </div>
+        
+        <!-- Carregando Mensagem -->
+        <div id="saving" class="hidden text-center mt-4 text-gray-600 font-medium">
+            Salvando pontuação...
+        </div>
+
+        <!-- Área de Resultados -->
+        <div id="results" class="mt-8 pt-6 border-t border-gray-300 hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Resultados</h2>
+            <div id="scoreDisplay" class="text-center text-3xl font-bold text-blue-600 mb-6"></div>
+            <div id="answersFeedback" class="space-y-6"></div>
+        </div>
+
+        <!-- Histórico de Pontuações -->
+        <div class="mt-8 pt-6 border-t border-gray-300">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Histórico de Pontuações</h2>
+            <ul id="scoresList" class="space-y-3">
+                <p class="text-gray-500 text-center">Carregando histórico...</p>
+            </ul>
+        </div>
+
+        <!-- Modal para mensagens de erro/aviso -->
+        <div id="modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 hidden">
+            <div class="bg-white rounded-lg p-6 max-w-sm w-full shadow-xl">
+                <p id="modalMessage" class="text-center text-gray-800 font-semibold mb-4"></p>
+                <div class="flex justify-center">
+                    <button id="closeModalBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-300">
+                        Ok
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { getFirestore, collection, addDoc, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+        
+        // Verifica se as variáveis globais do ambiente estão definidas
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        // Configuração da API para geração de texto
+        const API_KEY = ""; // A chave da API será fornecida pelo ambiente
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
+        
+        // Dados das questões, incluindo a pergunta, opções, resposta correta, justificativa e pontuação.
+        let questions = [
+            // Questões originais
+            {
+                text: "1. Qual é a principal finalidade da limpeza, um procedimento fundamental em ambientes de saúde?",
+                options: [
+                    "a) Proporcionar um ambiente com a maior carga possível de contaminação para fortalecer a imunidade dos pacientes.",
+                    "b) Remover apenas a sujidade visível para melhorar a estética do local.",
+                    "c) Proporcionar às pessoas em determinado local a menor carga possível de contaminação, diminuindo a possibilidade de transmissão de patógenos.",
+                    "d) Aumentar o fluxo de ar para arejar o ambiente.",
+                    "e) Descartar materiais de consumo diário, como sabonete líquido."
+                ],
+                correctAnswer: "c",
+                justification: "O texto define limpeza como 'a remoção de sujidade de materiais e superfícies inanimadas utilizando meios mecânicos (fricção), físicos (temperatura) ou químicos (saneantes) com a finalidade de proporcionar às pessoas que estão em determinado local a menor carga possível de contaminação, diminuindo, assim, a possibilidade de transmissão de patógenos'.",
+                points: 30
+            },
+            {
+                text: "2. A arrumação do leito hospitalar varia de acordo com a condição do paciente. Um leito que é ocupado por um cliente que tem a possibilidade de se locomover ou que aguarda a chegada de um novo cliente admitido é classificado como:",
+                options: [
+                    "a) Cama fechada.",
+                    "b) Cama de operado.",
+                    "c) Cama com doente acamado.",
+                    "d) Cama aberta.",
+                    "e) Cama semiaberta."
+                ],
+                correctAnswer: "d",
+                justification: "O texto especifica que a 'Cama aberta' é 'aquela ocupada pelo cliente que tem a possibilidade de se locomover ou aquela que aguarda a chegada de novo cliente admitido'.",
+                points: 40
+            },
+            {
+                text: "3. As frequências de limpeza concorrente variam conforme a área do hospital. Em quais áreas a limpeza concorrente é realizada três vezes ao dia, em horários estabelecidos e sempre que necessário?",
+                options: [
+                    "a) Áreas semicríticas, como quartos de pacientes e ambulatórios.",
+                    "b) Áreas não críticas, como áreas administrativas e vestiários.",
+                    "c) Áreas críticas, como salas de cirurgia e Unidades de Terapia Intensiva (UTI).",
+                    "d) Em todas as áreas do hospital, independentemente do risco.",
+                    "e) Apenas nas áreas administrativas."
+                ],
+                correctAnswer: "c",
+                justification: "O material indica que a frequência da limpeza concorrente nas 'áreas críticas é realizada três (3) vezes ao dia, em horários estabelecidos de acordo com a rotina do serviço e sempre que necessário'. As áreas críticas são exemplificadas como 'salas de cirurgia e Unidade de Terapia Intensiva (UTI)'.",
+                points: 50
+            },
+            {
+                text: "4. No procedimento de limpeza concorrente da unidade do cliente, uma sequência específica de ações é importante para garantir a eficácia e evitar contaminação. Após 'desocupar a mesa de cabeceira' e 'encaminhar a comadre ou papagaio para desinfecção', qual é o passo subsequente, imediatamente antes de 'afastar a cama da parede'?",
+                options: [
+                    "a) Ensaboar os utensílios e retirar o sabão com pano úmido.",
+                    "b) Limpar um dos lados do travesseiro.",
+                    "c) Soltar e retirar toda a roupa de cama, evitando movimentos bruscos, e colocá-la no hamper.",
+                    "d) Limpar a mesa de refeição, mesa de cabeceira e campainha.",
+                    "e) Abrir portas e janelas para arejar o ambiente."
+                ],
+                correctAnswer: "c",
+                justification: "A lista de procedimentos para a limpeza concorrente detalha a sequência: 'Desocupar a mesa de cabeceira', 'Encaminhar a comadre ou papagaio para desinfecção', e em seguida, 'Soltar e retirar toda a roupa de cama, evitando movimentos bruscos, e colocá-la no hamper'. O passo seguinte é 'Afastar a cama da parede'.",
+                points: 60
+            },
+            {
+                text: "5. O conforto do paciente é um aspecto crucial do cuidado de enfermagem, envolvendo bem-estar físico e mental, e um estado livre de ansiedade, dor ou inquietação. O texto divide o conforto em três tipos principais. Assinale a alternativa que apresenta corretamente esses três tipos e uma ação de enfermagem que contribui para o conforto espiritual.",
+                options: [
+                    "a) Físico, emocional e social; Estimular o uso de dispositivos eletrônicos durante o banho.",
+                    "b) Físico, espiritual e cultural; Ignorar as crenças religiosas do paciente para manter a neutralidade.",
+                    "c) Espiritual, psicológico e físico; Propiciar, quando possível, um contato com conselheiro espiritual.",
+                    "d) Psicológico, social e ambiental; Manter a unidade em desordem para estimular a organização do paciente.",
+                    "e) Mental, fisiológico e ambiental; Proporcionar um ambiente com ruídos elevados para distração."
+                ],
+                correctAnswer: "c",
+                justification: "O texto descreve que o conforto 'pode ser de três tipos: Espiritual, Psicológico e Físico'. Dentre as formas de a enfermagem propiciar o conforto espiritual, está 'Propiciando, quando possível, um contato com conselheiro espiritual'.",
+                points: 65
+            },
+            {
+                text: "6. A massagem de conforto é uma intervenção de enfermagem valiosa para pacientes acamados, visando ativar a circulação, prevenir lesões por pressão e promover relaxamento. O texto descreve cinco tipos de movimentos de massagem. Qual das seguintes associações entre o tipo de movimento e sua descrição está INCORRETA?",
+                options: [
+                    "a) Deslizamento: Pode ser superficial, com movimentos longos, leves e rítmicos, ou profunda, realizada de maneira mais forte.",
+                    "b) Amassamento: Realizada de maneira que manipula o músculo, apertando-o de acordo com o contorno da massa muscular.",
+                    "c) Fricção: Realizada com um profundo movimento circular, em que os dedos não deslizam pela pele, mas a pele se move com os dedos.",
+                    "d) Percussão: Realizada com movimentos longos e rítmicos sobre a pele para ativar a circulação superficial.",
+                    "e) Vibração: Realizada por um impulso vibratório ou agitante comunicado aos tecidos do paciente por meio de contínua vibração do ombro, braço, mão e dedos do executante."
+                ],
+                correctAnswer: "d",
+                justification: "A descrição correta de 'Percussão' no texto é 'realizada com palmadas ou batidas leves no tecido, com as mãos cerradas'. A alternativa 'd' apresenta uma descrição divergente. As demais alternativas estão de acordo com as descrições dos tipos de massagem: Deslizamento, Amassamento, Fricção e Vibração.",
+                points: 75
+            },
+            {
+                text: "7. Após a constatação do óbito de um paciente, a equipe de enfermagem deve realizar o preparo do corpo para encaminhamento ao necrotério, o que inclui anotações específicas no prontuário. Qual das seguintes informações é INCORRETA para ser registrada no prontuário do paciente após o óbito, conforme as orientações do texto?",
+                options: [
+                    "a) O horário em que o médico constatou o óbito e o nome do médico responsável.",
+                    "b) O registro da retirada de cateteres, drenos e demais equipamentos para suporte.",
+                    "c) O preparo do corpo realizado (limpeza, tamponamento, colocação de próteses, vestimenta, identificação do corpo).",
+                    "d) A descrição dos pertences que foram encaminhados com o corpo.",
+                    "e) O histórico familiar de doenças crônicas do paciente."
+                ],
+                correctAnswer: "e",
+                justification: "O texto lista as anotações que devem constar no prontuário do paciente após o óbito. O histórico familiar de doenças crônicas não é mencionado como uma informação a ser registrada neste momento específico, embora seja um dado relevante para o prontuário geral do paciente durante a internação.",
+                points: 50
+            },
+            {
+                text: "8. Um paciente inconsciente necessita de higiene oral detalhada e frequente para prevenir complicações e formação de placas, além de minimizar o risco de aspiração. Qual a posição mais indicada para este paciente durante o procedimento de higiene oral e a justificativa para essa escolha?",
+                options: [
+                    "a) Decúbito dorsal horizontal com a cabeça elevada, para facilitar a visualização da cavidade oral.",
+                    "b) Posição de Trendelenburg, para evitar que fluidos retornem à boca.",
+                    "c) Posição semi-Fowler com a cabeça lateralizada para o lado em que o profissional se encontra, pois permite que fluidos e secreções escorram para fora, prevenindo a aspiração.",
+                    "d) Posição de Sims, para garantir o conforto do paciente inconsciente.",
+                    "e) Posição genupeitoral, para facilitar o acesso à cavidade oral."
+                ],
+                correctAnswer: "c",
+                justification: "Para pacientes inconscientes, o texto orienta que 'A melhor posição é semi-Flower, lateralizando a cabeça para o lado em que você se encontra... Dessa maneira, qualquer fluido ou secreção que estiver na boca escorre para fora, evitando, assim, que o paciente aspire'.",
+                points: 50
+            },
+            {
+                text: "9. A tricotomia, que é a retirada de pelos de uma área específica do corpo, possui diversos objetivos importantes no contexto hospitalar. Qual dos seguintes itens NÃO é listado como um objetivo da tricotomia no texto?",
+                options: [
+                    "a) Preparar uma área para cirurgias ou exames.",
+                    "b) Permitir a fixação de curativos, drenos ou sondas.",
+                    "c) Facilitar a higiene.",
+                    "d) Finalidade estética, em caso de tricotomia facial.",
+                    "e) Aumento da sensibilidade cutânea na área."
+                ],
+                correctAnswer: "e",
+                justification: "O texto lista os objetivos da tricotomia como: 'preparar uma área para cirurgias ou exames, permitir a fixação de curativos, drenos ou sondas, facilitar a higiene e finalidade estética, em caso de tricotomia facial'. A alternativa 'e' não corresponde a um objetivo mencionado.",
+                points: 40
+            },
+            {
+                text: "10. A limpeza terminal é um processo mais completo que inclui todas as superfícies de uma unidade hospitalar. Em relação à frequência da limpeza terminal, qual é a periodicidade recomendada para áreas semicríticas?",
+                options: [
+                    "a) Semanal.",
+                    "b) Diária.",
+                    "c) Quinzenal.",
+                    "d) Mensal.",
+                    "e) Três vezes ao dia."
+                ],
+                correctAnswer: "c",
+                justification: "O texto estabelece que 'A frequência da limpeza terminal deve seguir um cronograma, sendo áreas críticas (semanal), áreas semicríticas (quinzenal) e áreas não críticas (mensal)'.",
+                points: 50
+            },
+            // Novas questões
+            {
+                text: "11. Qual é a principal finalidade da sondagem vesical, também conhecida como cateterismo vesical?",
+                options: [
+                    "a) Administrar medicamentos diretamente na bexiga.",
+                    "b) Promover o relaxamento muscular e conforto do paciente.",
+                    "c) Esvaziar a bexiga do indivíduo através da introdução de uma sonda ou cateter pela uretra.",
+                    "d) Coletar amostras de fezes para exames laboratoriais.",
+                    "e) Realizar a limpeza diária das dependências de saúde."
+                ],
+                correctAnswer: "c",
+                justification: "A sondagem vesical tem como principal objetivo esvaziar a bexiga, o que pode ser necessário em diversas condições clínicas.",
+                points: 30
+            },
+            {
+                text: "12. Um dos tipos de sondagem vesical é a de alívio. Qual é uma das finalidades específicas desta sondagem?",
+                options: [
+                    "a) Manter o esvaziamento constante da bexiga por longo período.",
+                    "b) Eliminar a urina residual e prevenir infecção urinária.",
+                    "c) Administrar soluções hipertônicas diretamente na bexiga.",
+                    "d) Avaliar continuamente a diurese em pacientes gravemente enfermos.",
+                    "e) Preparar o paciente para cirurgias na região pélvica."
+                ],
+                correctAnswer: "b",
+                justification: "A sondagem de alívio é utilizada para esvaziar a bexiga em casos de retenção urinária aguda ou para obter uma amostra estéril de urina. Ajuda a prevenir infecções ao eliminar a urina residual.",
+                points: 40
+            },
+            {
+                text: "13. A Sondagem Vesical de Demora (SVD) pode acarretar diversas complicações. Qual das opções a seguir NÃO é uma complicação associada ao uso da SVD?",
+                options: [
+                    "a) Infecção do trato urinário.",
+                    "b) Obstrução do cateter.",
+                    "c) Lesão uretral e bexiga.",
+                    "d) Hipertermia maligna.",
+                    "e) Cálculo renal."
+                ],
+                correctAnswer: "d",
+                justification: "A hipertermia maligna é uma complicação rara e grave associada à anestesia geral, e não é uma complicação direta do uso da Sondagem Vesical de Demora.",
+                points: 50
+            },
+            {
+                text: "14. Ao realizar a coleta de sangue, a ordem dos tubos é crucial para evitar a contaminação por anticoagulantes. Qual é a sequência CORRETA de coleta dos tubos, considerando os tipos de frascos e suas cores?",
+                options: [
+                    "a) Azul (Citrato), Frasco para Hemocultura, Vermelho/Amarelo (Seco), Verde (Heparina), Roxo (EDTA), Cinza (Fluoreto/EDTA).",
+                    "b) Roxo (EDTA), Cinza (Fluoreto/EDTA), Verde (Heparina), Azul (Citrato), Vermelho/Amarelo (Seco), Frasco para Hemocultura.",
+                    "c) Frasco para Hemocultura, Azul (Citrato), Vermelho e/ou Amarelo (Seco), Verde (Heparina), Roxo (EDTA), Cinza (Fluoreto/EDTA).",
+                    "d) Frasco para Hemocultura, Roxo (EDTA), Verde (Heparina), Azul (Citrato), Vermelho/Amarelo (Seco), Cinza (Fluoreto/EDTA).",
+                    "e) Vermelho e/ou Amarelo (Seco), Frasco para Hemocultura, Azul (Citrato), Verde (Heparina), Roxo (EDTA), Cinza (Fluoreto/EDTA)."
+                ],
+                correctAnswer: "c",
+                justification: "A ordem correta de coleta é: Frasco para Hemocultura (estéril), seguido de Citrato de Sódio (azul) para coagulação, depois o frasco sem aditivo (vermelho/amarelo), seguido do tubo com heparina (verde), EDTA (roxo) e, por último, o fluoreto/EDTA (cinza).",
+                points: 60
+            },
+            {
+                text: "15. No procedimento de sondagem vesical de demora, a antissepsia local e a introdução da sonda diferem entre os sexos. Qual das seguintes afirmações descreve corretamente essas etapas?",
+                options: [
+                    "a) Para ambos os sexos, a introdução da sonda é de 13 cm a 19 cm, sempre sem lubrificação prévia.",
+                    "b) No sexo feminino, a antissepsia envolve a limpeza da glande com pinça e gaze em movimentos circulares.",
+                    "c) No sexo masculino, a antissepsia é feita limpando-se o meato urinário de cima para baixo.",
+                    "d) No sexo feminino, deve-se separar os grandes e pequenos lábios e limpar de cima para baixo; no sexo masculino, segurar o pênis com a mão não dominante em ângulo de 60°-90° e limpar a glande do meato para fora.",
+                    "e) A introdução da sonda no sexo masculino deve ser de 5 cm a 7,5 cm, enquanto no feminino é de 13 cm a 19 cm."
+                ],
+                correctAnswer: "d",
+                justification: "Esta é a descrição correta do procedimento de antissepsia e introdução da sonda, que difere significativamente entre homens e mulheres devido às diferenças anatômicas. A introdução da sonda no sexo masculino é maior (13 a 19 cm) do que no feminino (5 a 7,5 cm).",
+                points: 65
+            },
+            {
+                text: "16. Um enfermeiro precisa coletar uma amostra de escarro por aspiração traqueal de um paciente intubado. Considerando os múltiplos passos e a atenção à segurança, qual a sequência CORRETA das ações a serem realizadas?",
+                options: [
+                    "a) Ligar o aspirador, introduzir o cateter na narina e aspirar por 20 segundos para fluidificar a secreção, depois desconectar e enviar ao laboratório.",
+                    "b) Calçar luvas estéreis, conectar o cateter ao aspirador, aspirar vigorosamente por 30 segundos, oferecer oxigênio e registrar no prontuário.",
+                    "c) Orientar o paciente, verificar o funcionamento do aspirador, calçar luvas de procedimento, introduzir o cateter até a traqueia aspirando continuamente, e ao final, desprezar o material sem identificação.",
+                    "d) Orientar o paciente, verificar o funcionamento do aspirador, posicionar o paciente em Fowler alto ou semi-Fowler, lavar as mãos, colocar máscara e óculos de proteção, calçar luva estéril, conectar cateter e coletor, lubrificar o cateter, introduzir na narina sem aspirar, introduzir rapidamente na traqueia durante a tosse e aspirar por 5-10 segundos, suspender aspiração, retirar cateter e oferecer oxigênio, vedar coletor, identificar frasco e encaminhar ao laboratório.",
+                    "e) Aspirar água destilada para limpar a extensão, em seguida, lubrificar o cateter e introduzi-lo na traqueia, coletando a amostra e descartando o coletor sem vedação."
+                ],
+                correctAnswer: "d",
+                justification: "Esta é a sequência correta e completa, com todas as etapas de segurança e técnica. Ignorar qualquer um desses passos (como a orientação do paciente ou o uso de equipamentos de proteção) pode comprometer a segurança e a eficácia do procedimento.",
+                points: 75
+            },
+            {
+                text: "17. No contexto da coleta de urina para exame de urocultura de um paciente com sonda vesical de demora, jamais se deve coletar a urina da bolsa de drenagem. Qual é a justificativa para essa recomendação e qual é a técnica correta para a coleta nesse cenário?",
+                options: [
+                    "a) A urina da bolsa de drenagem é sempre estéril, mas a coleta da bolsa pode danificar o sistema; a técnica correta é desconectar a sonda da bolsa e coletar diretamente da sonda.",
+                    "b) A coleta da bolsa de drenagem é mais fácil e rápida, mas a quantidade é insuficiente; o método correto é estimular o paciente a urinar espontaneamente.",
+                    "c) A urina da bolsa de drenagem está exposta a contaminantes do ambiente e pode estar estagnada por muito tempo, comprometendo o resultado. A técnica correta envolve clampear a sonda próxima ao dispositivo de aspiração por 15 a 30 minutos, realizar a desinfecção do dispositivo com clorexidine alcoólico e aspirar a urina com seringa de 20 ml e agulha 30/7 diretamente da extensão da sonda.",
+                    "d) A bolsa de drenagem só deve ser utilizada para controle de débito urinário; o correto é inserir uma nova sonda vesical para cada coleta de urocultura.",
+                    "e) A justificativa é evitar o desperdício de urina; a técnica correta é esvaziar a bolsa e coletar a urina que se acumula imediatamente após a desinfecção da saída."
+                ],
+                correctAnswer: "c",
+                justification: "A coleta de urina diretamente da bolsa de drenagem é contraindicada pois a urina estagnada e exposta a contaminantes externos invalida a amostra. A técnica correta, que garante a esterilidade da amostra, é a aspiração da urina que se acumulou na extensão da sonda, após a desinfecção adequada e clampeamento.",
+                points: 50
+            },
+            {
+                text: "18. Qual dos seguintes tipos de sondagem tem como objetivo principal auxiliar na eliminação de gases, administrar medicamentos ou preparar o paciente para cirurgias ou exames, limpando a porção intestinal inferior?",
+                options: [
+                    "a) Sondagem gástrica.",
+                    "b) Sondagem nasoenteral.",
+                    "c) Sondagem vesical de alívio.",
+                    "d) Sondagem retal.",
+                    "e) Lavagem ocular."
+                ],
+                correctAnswer: "d",
+                justification: "A sondagem retal, também conhecida como enema ou clister, é o procedimento de introdução de uma sonda no reto e sigmoide para a administração de soluções, eliminação de gases ou limpeza do intestino inferior.",
+                points: 30
+            },
+            {
+                text: "19. Para a coleta de urina tipo 1 e urocultura, tanto para homens quanto para mulheres, qual é a principal recomendação em relação ao jato de urina a ser coletado e à higiene prévia?",
+                options: [
+                    "a) Coletar o primeiro jato, sem necessidade de higiene íntima prévia para não alterar a amostra.",
+                    "b) Coletar o último jato, pois é o mais concentrado, após uma higiene superficial.",
+                    "c) Realizar higiene íntima adequada e coletar o jato médio da urina.",
+                    "d) Coletar a urina diretamente da bacia após o banho, para conveniência.",
+                    "e) Não é necessário realizar higiene, apenas certificar-se de que o recipiente está estéril."
+                ],
+                correctAnswer: "c",
+                justification: "A coleta do jato médio de urina, após a higiene íntima adequada, é a técnica padrão-ouro para exames de urina e urocultura. A higiene prévia e a eliminação do primeiro jato minimizam a contaminação da amostra por microrganismos da pele e da uretra.",
+                points: 40
+            },
+            {
+                text: "20. A sondagem enteral (nasoenteral/oroenteral) é indicada para melhorar o aporte nutricional de pacientes. Antes de iniciar a administração de dieta por essa via, qual dos testes a seguir é fundamental para confirmar o posicionamento correto da sonda?",
+                options: [
+                    "a) Apenas a ausculta da região epigástrica após a injeção de ar.",
+                    "b) A aspiração do conteúdo gástrico para verificar o pH.",
+                    "c) O relato do paciente de que a sonda está bem posicionada.",
+                    "d) A realização de um exame de Raio-X (RX) de abdome.",
+                    "e) A observação da marca externa da sonda no nariz."
+                ],
+                correctAnswer: "d",
+                justification: "Embora a ausculta e o teste de pH possam ser usados, o exame de Raio-X de abdome é considerado o método mais seguro e eficaz para confirmar o posicionamento correto de uma sonda enteral, pois visualiza a ponta da sonda no estômago ou intestino.",
+                points: 50
+            }
+        ];
+
+        // Seleciona os elementos do DOM
+        const quizForm = document.getElementById('quizForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const savingDiv = document.getElementById('saving');
+        const resultsDiv = document.getElementById('results');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const answersFeedback = document.getElementById('answersFeedback');
+        const modal = document.getElementById('modal');
+        const modalMessage = document.getElementById('modalMessage');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        
+        // Função para mostrar o modal
+        function showModal(message) {
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        // Função para fechar o modal
+        closeModalBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        // Função para exibir o estado de salvamento
+        function showSaving(show) {
+            if (show) {
+                savingDiv.classList.remove('hidden');
+                submitBtn.disabled = true;
+            } else {
+                savingDiv.classList.add('hidden');
+                submitBtn.disabled = false;
+            }
+        }
+
+        /**
+         * Gera uma justificativa detalhada para uma resposta usando a API do Gemini.
+         * @param {string} questionText - O texto da pergunta.
+         * @param {string} userAnswer - A resposta dada pelo usuário.
+         * @param {string} correctAnswer - A resposta correta.
+         * @param {Array<string>} allOptions - Todas as opções da questão.
+         */
+        async function generateJustification(questionText, userAnswer, correctAnswer, allOptions) {
+            const loadingSpan = document.getElementById(`loading-justification-${questionText.replace(/\s+/g, '-').substring(0, 10)}`);
+            const justificationP = document.getElementById(`justification-text-${questionText.replace(/\s+/g, '-').substring(0, 10)}`);
+            
+            loadingSpan.classList.remove('hidden');
+            justificationP.textContent = '';
+            
+            const prompt = `
+            A pergunta era: "${questionText}"
+            A resposta do usuário foi: "${userAnswer}"
+            A resposta correta é: "${correctAnswer}"
+            As opções disponíveis eram: ${JSON.stringify(allOptions)}
+            
+            Explique de forma detalhada e amigável por que a resposta correta está certa e por que as outras opções estão erradas, com base em Fundamentos Técnicos em Enfermagem. Sua explicação deve ser direta, educativa e em Português.
+            `;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Erro na API: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (!text) {
+                     throw new Error("Resposta da API incompleta ou mal formatada.");
+                }
+
+                justificationP.textContent = text;
+            } catch (error) {
+                console.error('Erro ao gerar justificativa:', error);
+                justificationP.textContent = "Não foi possível gerar a justificativa. Por favor, tente novamente.";
+            } finally {
+                loadingSpan.classList.add('hidden');
+            }
+        }
+
+
+        // Gera as questões dinamicamente no formulário
+        function renderQuestions() {
+            // Remove as questões antigas, mas mantém os campos de identificação
+            const existingQuestions = quizForm.querySelectorAll('.quiz-question');
+            existingQuestions.forEach(q => q.remove());
+            
+            questions.forEach((q, index) => {
+                const questionContainer = document.createElement('div');
+                questionContainer.classList.add('bg-gray-50', 'rounded-lg', 'p-6', 'border', 'border-gray-200', 'shadow-sm', 'quiz-question');
+                questionContainer.innerHTML = `
+                    <p class="font-semibold text-gray-800 text-lg mb-4">${q.text}</p>
+                    <div class="space-y-3">
+                        ${q.options.map((option, optIndex) => `
+                            <label class="flex items-start space-x-3 cursor-pointer">
+                                <input type="radio" name="question-${index}" value="${String.fromCharCode(97 + optIndex)}" class="mt-1 h-5 w-5 text-blue-600 focus:ring-blue-500 rounded-full">
+                                <span class="text-gray-700 text-base">${option}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                `;
+                quizForm.appendChild(questionContainer);
+            });
+        }
+
+        // Lógica para enviar o formulário, calcular e salvar a pontuação
+        submitBtn.addEventListener('click', async () => {
+            // Coleta os dados de identificação do aluno
+            const studentName = document.getElementById('studentName').value.trim();
+            const studentCourse = document.getElementById('studentCourse').value.trim();
+            const studentUniversity = document.getElementById('studentUniversity').value.trim();
+
+            if (!studentName || !studentCourse || !studentUniversity) {
+                showModal("Por favor, preencha todos os campos de identificação do aluno.");
+                return;
+            }
+
+            let score = 0;
+            let allAnswered = true;
+            answersFeedback.innerHTML = '';
+            resultsDiv.classList.remove('hidden');
+
+            questions.forEach((q, index) => {
+                const selectedOption = document.querySelector(`input[name="question-${index}"]:checked`);
+                const userAnswer = selectedOption ? selectedOption.value : null;
+
+                if (!userAnswer) {
+                    allAnswered = false;
+                }
+            });
+            
+            if (!allAnswered) {
+                showModal("Por favor, responda a todas as questões antes de enviar.");
+                return;
+            }
+
+            questions.forEach((q, index) => {
+                const selectedOption = document.querySelector(`input[name="question-${index}"]:checked`);
+                const userAnswer = selectedOption ? selectedOption.value : null;
+                const isCorrect = userAnswer === q.correctAnswer;
+                
+                if (isCorrect) {
+                    score += q.points; // Adiciona os pontos da questão
+                }
+
+                const feedbackItem = document.createElement('div');
+                feedbackItem.classList.add('bg-white', 'rounded-lg', 'p-6', 'border', 'shadow-sm', 'transition-all', 'duration-300', isCorrect ? 'border-green-400' : 'border-red-400');
+                
+                feedbackItem.innerHTML = `
+                    <p class="font-bold text-lg mb-2 ${isCorrect ? 'text-green-700' : 'text-red-700'}">
+                        Questão ${index + 1}: ${isCorrect ? 'Correta!' : 'Incorreta.'} (<span class="text-sm font-normal">${q.points} pontos</span>)
+                    </p>
+                    <p class="text-gray-800 font-semibold">${q.text}</p>
+                    <p class="mt-2 text-gray-700">
+                        Sua resposta: <span class="font-medium ${isCorrect ? 'text-green-600' : 'text-red-600'}">${userAnswer.toUpperCase()}</span>
+                    </p>
+                    <p class="text-gray-700">
+                        Resposta correta: <span class="font-medium text-green-600">${q.correctAnswer.toUpperCase()}</span>
+                    </p>
+                    <p class="mt-4 text-gray-600 border-t pt-4 border-gray-200">
+                        <span class="font-bold">Justificativa:</span>
+                        <span id="justification-text-${q.text.replace(/\s+/g, '-').substring(0, 10)}">
+                            ${q.justification || 'Clique em "Gerar Justificativa" para uma explicação detalhada.'}
+                        </span>
+                        <span id="loading-justification-${q.text.replace(/\s+/g, '-').substring(0, 10)}" class="hidden text-sm text-gray-500">
+                            Gerando...
+                        </span>
+                    </p>
+                    <div class="mt-4 flex justify-end">
+                        <button class="generate-justification-btn bg-yellow-400 hover:bg-yellow-500 text-gray-800 font-semibold py-2 px-4 rounded-full transition-colors duration-300" 
+                            data-question-index="${index}">
+                            Gerar Justificativa ✨
+                        </button>
+                    </div>
+                `;
+                answersFeedback.appendChild(feedbackItem);
+            });
+
+            // Exibe a pontuação total
+            scoreDisplay.textContent = `Sua Pontuação: ${score} de 1000`;
+            
+            // Rola a página para a seção de resultados
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+
+            // Adiciona event listeners para os botões de justificativa
+            document.querySelectorAll('.generate-justification-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = e.target.dataset.questionIndex;
+                    const question = questions[index];
+                    const selectedOption = document.querySelector(`input[name="question-${index}"]:checked`);
+                    const userAnswer = selectedOption ? selectedOption.value : null;
+                    generateJustification(question.text, userAnswer, question.correctAnswer, question.options);
+                });
+            });
+
+            // Salva a pontuação no Firestore
+            if (db && currentUserId) {
+                showSaving(true);
+                try {
+                    const scoresCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/student_scores`);
+                    await addDoc(scoresCollectionRef, {
+                        name: studentName,
+                        course: studentCourse,
+                        university: studentUniversity,
+                        score: score,
+                        date: new Date(),
+                    });
+                    showSaving(false);
+                    showModal("Sua pontuação foi salva com sucesso!");
+                } catch (error) {
+                    console.error("Erro ao salvar pontuação:", error);
+                    showSaving(false);
+                    showModal("Ocorreu um erro ao salvar a pontuação. Por favor, tente novamente.");
+                }
+            } else {
+                // Remove o console.error para evitar mensagens duplicadas
+                showModal("Erro: A funcionalidade de salvar não está disponível. Por favor, tente recarregar a página.");
+            }
+        });
+
+        // Renderiza as questões quando a página é carregada
+        document.addEventListener('DOMContentLoaded', renderQuestions);
+    </script>
+</body>
+</html>
